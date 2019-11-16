@@ -1,8 +1,10 @@
 #!/usr/bin/env groovy
+@Library('Jenkins-Library')_
+//importing library, make sure it is setup on jenkins first
 
-GoogleWebhook = 'Webhook URL'
+googleWebhook = 'Webhook URL'
 //Webhook for jenkins bot 
-GoogleChatApproveDeploymentMessage = "*ACTION REQUIRED* Pipeline build ${BUILD_TAG} requesting input to deploy to *PRODUCTION*. Click _'Proceed'_  to deploy, click _'Abort'_  to skip deployment. Link to build: ${BUILD_URL}console"
+message = "*ACTION REQUIRED* Pipeline build ${BUILD_TAG} requesting input to deploy to *PRODUCTION*. Click _'Proceed'_  to deploy, click _'Abort'_  to skip deployment. Link to build: ${BUILD_URL}console"
 
 node('Slave-Node') {
   String OUTPUT_DIR = pwd()
@@ -28,19 +30,7 @@ node('Slave-Node') {
           }
           
           stage('Code analysis') { 	
-          	def version = readFile ('version.txt')
-		  //include a .txt file with just project version (e.g '1.0.3') in project folder 
-
-    		if (!version) {
-        		error("Version file (version.txt) was not found")
-   			}
-
-    		version = version.trim() +  "." + env.BUILD_NUMBER
-                //appends version with the build number
-            withSonarQubeEnv('Sonar Environment') {
-      			sh "sonar-scanner -X -Dsonar.projectVersion=${version}"
-		    //adds the version number to sonar so you can easily see differences between builds. Make sure to have a seperate sonar-project.properties
-    		} 
+		  sonarCodeAnalysis()		  
           }
           
         stage('Deploy to QA') {
@@ -65,7 +55,7 @@ node('Slave-Node') {
             def deployFlag = true
               try {
                   timeout(time: 1, unit: "HOURS") {
-                      googlechatnotification message: GoogleChatApproveDeploymentMessage, sameThreadNotification: true, url: GoogleWebhook;
+			googleChat([Message: message, GoogleWebhook: googleWebhook])			  
 			  //send a message to the google chat room asking for user input
                       input(message: 'Deploy this build to Production?')
 			  //asks for user input with options  'Proceed' or 'Abort' (those are the default) 
@@ -74,18 +64,21 @@ node('Slave-Node') {
 		      //if no input provided before timeout then do this
                   deployFlag = false
                   println "Not deploying to Production"
-                  googlechatnotification message: "NOT deploying to Production", sameThreadNotification: true, url: GoogleWebhook;
+                  message = "NOT deploying to Production"
+		  googleChat([Message: message, GoogleWebhook: googleWebhook])
 
               }
               if (deployFlag) {
 		      //send this message if user says proceed
-                  googlechatnotification message: "*Deploying to Production*", sameThreadNotification: true, url: GoogleWebhook;
+                  message = "*Deploying to Production*"
+		   googleChat([Message: message, GoogleWebhook: googleWebhook])
                 try {
                 	//deploy to Production
                 } catch (owo) {
 			//do this if deployment step somehow fails 
                   currentBuild.result = "UNSTABLE"
-                  googlechatnotification message: "Failed to deploy to Production", sameThreadNotification: true, url: GoogleWebhook;
+                  message = "Failed to deploy to Production"
+			googleChat([Message: message, GoogleWebhook: googleWebhook])	
                 }
               } else {
                   println "Something very unusual must have happened"
@@ -98,7 +91,8 @@ node('Slave-Node') {
 	   currentBuild.result = 'FAILURE'
         } finally {
 	    //send the build result to google chat. N.B- can't define this message at the top cause it'll mess up the build result
-          googlechatnotification message: "Pipeline build ${BUILD_TAG} complete. *${currentBuild.currentResult}*. Link to build: ${BUILD_URL}", sameThreadNotification: true, url: GoogleWebhook;	
+          message = "Pipeline build ${BUILD_TAG} complete. *${currentBuild.currentResult}*. Link to build: ${BUILD_URL}"
+	  googleChat([Message: message, GoogleWebhook: googleWebhook])	
           junit testResults: 'junit.xml'
 	    //read the generated junit.xml for that fancy looking test trend graph
         }
